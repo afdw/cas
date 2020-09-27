@@ -1,7 +1,16 @@
+cargo-features = ["named-profiles"]
+
 [package]
 name = "cas"
 version = "0.1.0"
 authors = ["Anton Danilkin <afdw@yandex.ru>"]
 edition = "2018"
 
+[profile.dev-fast]
+inherits = "dev"
+debug = false
+
 [dependencies]
+cairo-rs = {version = "0.9.1", features = ["v1_16"]}
+gio = {version = "0.9.1", features = ["v2_64"]}
+gtk = {version = "0.9.2", features = ["v3_16"]}

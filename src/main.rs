@@ -6,6 +6,23 @@ trait Value {
     fn render(&self, cr: &Context) -> (Pattern, (f64, f64));
 }
 
+struct Placeholder();
+
+impl Value for Placeholder {
+    fn render(&self, cr: &Context) -> (Pattern, (f64, f64)) {
+        cr.push_group();
+        cr.set_source_rgb(0.0, 0.0, 0.0);
+        cr.set_line_width(1.0);
+        cr.move_to(0.5, 0.5);
+        cr.line_to(6.5, 0.5);
+        cr.line_to(6.5, 6.5);
+        cr.line_to(0.5, 6.5);
+        cr.close_path();
+        cr.stroke();
+        (cr.pop_group(), (7.0, 7.0))
+    }
+}
+
 struct Number {
     value: f64,
 }
@@ -17,8 +34,7 @@ impl Value for Number {
         let text_extents = cr.text_extents(&text);
         cr.move_to(-text_extents.x_bearing, -text_extents.y_bearing);
         cr.show_text(&text);
-        let pattern = cr.pop_group();
-        (pattern, (text_extents.width, text_extents.height))
+        (cr.pop_group(), (text_extents.width, text_extents.height))
     }
 }
 
@@ -32,24 +48,51 @@ impl Value for Addition {
         cr.push_group();
         let (a_pattern, (a_width, a_height)) = self.a.render(cr);
         let (b_pattern, (b_width, b_height)) = self.b.render(cr);
-        cr.set_source(&a_pattern);
-        cr.paint();
-        cr.translate(a_width, 0.0);
-        cr.save();
-        cr.translate(5.0, (a_height + b_height) / 4.0);
-        cr.set_source_rgb(0.0, 0.0, 0.0);
-        cr.set_line_width(1.0);
-        cr.move_to(-3.0, 0.0);
-        cr.line_to(3.0, 0.0);
-        cr.move_to(0.0, -3.0);
-        cr.line_to(0.0, 3.0);
-        cr.stroke();
-        cr.restore();
-        cr.translate(10.0, 0.0);
-        cr.set_source(&b_pattern);
-        cr.paint();
-        let pattern = cr.pop_group();
-        (pattern, (a_width + b_width, f64::max(a_height, b_height)))
+        {
+            cr.save();
+            cr.translate(0.0, f64::max(a_height, b_height) / 2.0);
+
+            {
+                cr.save();
+                cr.translate(0.0, -a_height / 2.0);
+
+                cr.set_source(&a_pattern);
+                cr.paint();
+
+                cr.restore();
+            }
+            cr.translate(a_width, 0.0);
+            {
+                cr.save();
+                cr.translate(5.0, 0.0);
+
+                cr.set_source_rgb(0.0, 0.0, 0.0);
+                cr.set_line_width(1.0);
+                cr.move_to(-3.0, 0.0);
+                cr.line_to(3.0, 0.0);
+                cr.move_to(0.0, -3.0);
+                cr.line_to(0.0, 3.0);
+                cr.stroke();
+
+                cr.restore();
+            }
+            cr.translate(10.0, 0.0);
+            {
+                cr.save();
+                cr.translate(0.0, -b_height / 2.0);
+
+                cr.set_source(&b_pattern);
+                cr.paint();
+
+                cr.restore();
+            }
+
+            cr.restore();
+        }
+        (
+            cr.pop_group(),
+            (a_width + b_width, f64::max(a_height, b_height)),
+        )
     }
 }
 
@@ -61,7 +104,7 @@ fn main() {
         drawing_area.connect_draw(|_, cr| {
             let value = Addition {
                 a: Box::new(Number { value: 0.3 }),
-                b: Box::new(Number { value: 123.0 }),
+                b: Box::new(Placeholder()),
             };
             cr.scale(2.0, 2.0);
             let (pattern, (_width, _height)) = value.render(cr);

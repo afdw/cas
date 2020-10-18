@@ -46,7 +46,7 @@ pub struct IntrinsicCallValueInner {
 }
 
 pub struct FloatingPointNumberValueInner {
-    pub value: f64,
+    pub inner: f64,
 }
 
 pub fn evaluate(execution_context: &mut ExecutionContext, value: Value) -> Value {

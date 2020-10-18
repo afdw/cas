@@ -1,28 +1,32 @@
 mod data;
 mod value;
 
-use gio::prelude::*;
-use gtk::{prelude::*, Application, ApplicationWindow, DrawingArea};
+use std::collections::HashMap;
 pub use value::Value;
 
 fn main() {
-    let application = Application::new(None, Default::default()).unwrap();
-    application.connect_activate(|application| {
-        let window = ApplicationWindow::new(application);
-        let drawing_area = DrawingArea::new();
-        drawing_area.connect_draw(|_, cr| {
-            let value = Value::new(data::AdditionValueInner {
-                a: Value::new(data::NumberLiteralValueInner { value: 0.3 }),
-                b: Value::new(data::PlaceholderValueInner),
-            });
-            cr.scale(2.0, 2.0);
-            let (pattern, (_width, _height)) = data::render(value, cr);
-            cr.set_source(&pattern);
-            cr.paint();
-            Inhibit(false)
-        });
-        window.add(&drawing_area);
-        window.show_all();
-    });
-    application.run(&[]);
+    let execution_context = data::ExecutionContext {
+        values: HashMap::new(),
+        intrinsics: {
+            let mut intrinsics = HashMap::new();
+            macro_rules! intrinsic {
+                (($execution_context:ident, $($args:ident),*) $body:tt) => {{
+                    fn f($execution_context: &mut data::ExecutionContext, arguments: Vec<Value>) -> Value {
+                        let mut arguments = arguments.into_iter();
+                        $(let $args = arguments.next().unwrap());*;
+                        assert!(arguments.next().is_none());
+                        $body
+                    }
+                    f as fn(&mut data::ExecutionContext, Vec<Value>) -> Value
+                }}
+            }
+            intrinsics.insert(
+                Value::new(data::SymbolValueInner { name: "test".into() }),
+                intrinsic!((execution_context, a, b) {
+                    Value::new(data::NullValueInner)
+                }),
+            );
+            intrinsics
+        },
+    };
 }

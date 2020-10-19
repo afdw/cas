@@ -10,8 +10,8 @@ pub struct Value {
 }
 
 impl Value {
-    pub fn new<T: 'static>(value: T) -> Self {
-        Value { inner: Rc::new(value) }
+    pub fn new<T: 'static>(value_inner: T) -> Self {
+        Value { inner: Rc::new(value_inner) }
     }
 
     pub fn is<T: 'static>(&self) -> bool {

@@ -2,9 +2,10 @@ use crate::Value;
 use std::collections::HashMap;
 
 pub struct ExecutionContext {
-    pub values: HashMap<Value, Value>,
     #[allow(clippy::type_complexity)]
     pub intrinsics: HashMap<Value, fn(&mut ExecutionContext, Vec<Value>) -> Value>,
+    pub values: HashMap<Value, Value>,
+    pub stack: Vec<Value>,
 }
 
 pub struct HoldValueInner {
@@ -49,7 +50,7 @@ pub struct FloatingPointNumberValueInner {
     pub inner: f64,
 }
 
-pub fn evaluate(execution_context: &mut ExecutionContext, value: Value) -> Value {
+pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> Value {
     if let Some(value_inner) = value.try_downcast::<ExecutionValueInner>() {
         execute(execution_context, value_inner.inner.clone())
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
@@ -93,6 +94,16 @@ pub fn evaluate(execution_context: &mut ExecutionContext, value: Value) -> Value
         }
     } else {
         value
+    }
+}
+
+pub fn evaluate(execution_context: &mut ExecutionContext, mut value: Value) -> Value {
+    loop {
+        let new_value = evaluate_once(execution_context, value.clone());
+        if value == new_value {
+            return value;
+        }
+        value = new_value;
     }
 }
 

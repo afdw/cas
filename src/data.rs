@@ -16,16 +16,6 @@ pub struct ReleaseValueInner {
     pub inner: Value,
 }
 
-pub struct NullValueInner;
-
-pub struct SymbolValueInner {
-    pub name: String,
-}
-
-pub struct ExecutableSequenceValueInner {
-    pub inner: Vec<Value>,
-}
-
 pub struct AssignmentValueInner {
     pub source: Value,
     pub target: Value,
@@ -33,6 +23,10 @@ pub struct AssignmentValueInner {
 
 pub struct DereferenceValueInner {
     pub inner: Value,
+}
+
+pub struct ExecutableSequenceValueInner {
+    pub inner: Vec<Value>,
 }
 
 pub struct ExecutableFunctionValueInner {
@@ -50,6 +44,12 @@ pub struct IntrinsicCallValueInner {
     pub arguments: Vec<Value>,
 }
 
+pub struct NullValueInner;
+
+pub struct SymbolValueInner {
+    pub name: String,
+}
+
 pub struct FloatingPointNumberValueInner {
     pub inner: f64,
 }
@@ -58,13 +58,6 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
     if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
         let inner = evaluate(execution_context, value_inner.inner.clone());
         inner.downcast::<HoldValueInner>().inner.clone()
-    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
-        value_inner
-            .inner
-            .iter()
-            .map(|x| evaluate(execution_context, x.clone()))
-            .last()
-            .unwrap_or_else(|| Value::new(NullValueInner))
     } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
         let source = evaluate(execution_context, value_inner.source.clone());
         let target = evaluate(execution_context, value_inner.target.clone());
@@ -75,6 +68,13 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
         let inner = evaluate(execution_context, value_inner.inner.clone());
         assert!(inner.is::<SymbolValueInner>());
         execution_context.values.get(&inner).cloned().unwrap_or(inner)
+    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
+        value_inner
+            .inner
+            .iter()
+            .map(|x| evaluate(execution_context, x.clone()))
+            .last()
+            .unwrap_or_else(|| Value::new(NullValueInner))
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
         let body = evaluate(execution_context, value_inner.body.clone());
@@ -131,13 +131,6 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
         } else {
             Value::new(ReleaseValueInner { inner })
         }
-    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
-        let inner = value_inner.inner.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
-        if inner == value_inner.inner {
-            value
-        } else {
-            Value::new(ExecutableSequenceValueInner { inner })
-        }
     } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
         let source = replace(value_inner.source.clone(), from.clone(), to.clone());
         let target = replace(value_inner.target.clone(), from, to);
@@ -152,6 +145,13 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
             value
         } else {
             Value::new(DereferenceValueInner { inner })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
+        let inner = value_inner.inner.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(ExecutableSequenceValueInner { inner })
         }
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         let arguments = value_inner.arguments.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();

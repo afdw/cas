@@ -22,21 +22,17 @@ pub struct SymbolValueInner {
     pub name: String,
 }
 
-pub struct ExecutionValueInner {
-    pub inner: Value,
-}
-
 pub struct ExecutableSequenceValueInner {
     pub inner: Vec<Value>,
-}
-
-pub struct DereferenceValueInner {
-    pub inner: Value,
 }
 
 pub struct AssignmentValueInner {
     pub source: Value,
     pub target: Value,
+}
+
+pub struct DereferenceValueInner {
+    pub inner: Value,
 }
 
 pub struct ExecutableFunctionValueInner {
@@ -59,8 +55,9 @@ pub struct FloatingPointNumberValueInner {
 }
 
 pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> Value {
-    if let Some(value_inner) = value.try_downcast::<ExecutionValueInner>() {
-        execute(execution_context, value_inner.inner.clone())
+    if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
+        let inner = evaluate(execution_context, value_inner.inner.clone());
+        inner.downcast::<HoldValueInner>().inner.clone()
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
         value_inner
             .inner
@@ -74,6 +71,10 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
         assert!(target.is::<SymbolValueInner>());
         execution_context.values.insert(target, source);
         Value::new(NullValueInner)
+    } else if let Some(value_inner) = value.try_downcast::<DereferenceValueInner>() {
+        let inner = evaluate(execution_context, value_inner.inner.clone());
+        assert!(inner.is::<SymbolValueInner>());
+        execution_context.values.get(&inner).cloned().unwrap_or(inner)
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
         let body = evaluate(execution_context, value_inner.body.clone());
@@ -93,7 +94,7 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
             result = replace(result, from, to);
         }
         assert!(result.is::<HoldValueInner>());
-        execute(execution_context, result)
+        evaluate(execution_context, Value::new(ReleaseValueInner { inner: result }))
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         let intrinsic = evaluate(execution_context, value_inner.intrinsic.clone());
         let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
@@ -113,17 +114,6 @@ pub fn evaluate(execution_context: &mut ExecutionContext, mut value: Value) -> V
     }
 }
 
-pub fn execute(execution_context: &mut ExecutionContext, value: Value) -> Value {
-    let value = evaluate(execution_context, value);
-    if value.is::<SymbolValueInner>() {
-        execution_context.values.get(&value).cloned().unwrap_or(value)
-    } else if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
-        evaluate(execution_context, value_inner.inner.clone())
-    } else {
-        unreachable!()
-    }
-}
-
 pub fn replace(value: Value, from: Value, to: Value) -> Value {
     if value == from {
         to
@@ -134,12 +124,12 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
         } else {
             Value::new(HoldValueInner { inner })
         }
-    } else if let Some(value_inner) = value.try_downcast::<ExecutionValueInner>() {
+    } else if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
         let inner = replace(value_inner.inner.clone(), from, to);
         if inner == value_inner.inner {
             value
         } else {
-            Value::new(ExecutionValueInner { inner })
+            Value::new(ReleaseValueInner { inner })
         }
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
         let inner = value_inner.inner.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
@@ -155,6 +145,13 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
             value
         } else {
             Value::new(AssignmentValueInner { source, target })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<DereferenceValueInner>() {
+        let inner = replace(value_inner.inner.clone(), from, to);
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(DereferenceValueInner { inner })
         }
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         let arguments = value_inner.arguments.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();

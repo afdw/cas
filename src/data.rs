@@ -114,14 +114,9 @@ pub fn execute(execution_context: &mut ExecutionContext, value: Value) -> Value 
     } else if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
         evaluate(execution_context, value_inner.inner.clone())
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
-        value_inner
-            .inner
-            .iter()
-            .map(|x| execute(execution_context, x.clone()))
-            .last()
-            .unwrap_or_else(|| Value::new(NullValueInner))
+        value_inner.inner.last().cloned().unwrap_or_else(|| Value::new(NullValueInner))
     } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
-        assert!(value_inner.source.is::<SymbolValueInner>());
+        assert!(value_inner.target.is::<SymbolValueInner>());
         execution_context.values.insert(value_inner.target.clone(), value_inner.source.clone());
         Value::new(NullValueInner)
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {

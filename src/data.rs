@@ -12,6 +12,10 @@ pub struct HoldValueInner {
     pub inner: Value,
 }
 
+pub struct ReleaseValueInner {
+    pub inner: Value,
+}
+
 pub struct NullValueInner;
 
 pub struct SymbolValueInner {
@@ -24,6 +28,10 @@ pub struct ExecutionValueInner {
 
 pub struct ExecutableSequenceValueInner {
     pub inner: Vec<Value>,
+}
+
+pub struct DereferenceValueInner {
+    pub inner: Value,
 }
 
 pub struct AssignmentValueInner {
@@ -54,20 +62,18 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
     if let Some(value_inner) = value.try_downcast::<ExecutionValueInner>() {
         execute(execution_context, value_inner.inner.clone())
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
-        let inner = value_inner.inner.iter().map(|x| evaluate(execution_context, x.clone())).collect();
-        if inner == value_inner.inner {
-            value
-        } else {
-            Value::new(ExecutableSequenceValueInner { inner })
-        }
+        value_inner
+            .inner
+            .iter()
+            .map(|x| evaluate(execution_context, x.clone()))
+            .last()
+            .unwrap_or_else(|| Value::new(NullValueInner))
     } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
         let source = evaluate(execution_context, value_inner.source.clone());
         let target = evaluate(execution_context, value_inner.target.clone());
-        if source == value_inner.source && target == value_inner.target {
-            value
-        } else {
-            Value::new(AssignmentValueInner { source, target })
-        }
+        assert!(target.is::<SymbolValueInner>());
+        execution_context.values.insert(target, source);
+        Value::new(NullValueInner)
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
         let body = evaluate(execution_context, value_inner.body.clone());
@@ -78,20 +84,20 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
         }
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
         let function = evaluate(execution_context, value_inner.function.clone());
-        let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
-        if function == value_inner.function && arguments == value_inner.arguments {
-            value
-        } else {
-            Value::new(FunctionApplicationValueInner { function, arguments })
+        let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect::<Vec<_>>();
+        let function = function.downcast::<ExecutableFunctionValueInner>();
+        assert_eq!(function.arguments.len(), arguments.len());
+        let mut result = function.body.clone();
+        for (from, to) in function.arguments.iter().cloned().zip(arguments) {
+            assert!(from.is::<SymbolValueInner>());
+            result = replace(result, from, to);
         }
+        assert!(result.is::<HoldValueInner>());
+        execute(execution_context, result)
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         let intrinsic = evaluate(execution_context, value_inner.intrinsic.clone());
         let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
-        if intrinsic == value_inner.intrinsic && arguments == value_inner.arguments {
-            value
-        } else {
-            Value::new(IntrinsicCallValueInner { intrinsic, arguments })
-        }
+        (execution_context.intrinsics.get(&intrinsic).unwrap())(execution_context, arguments)
     } else {
         value
     }
@@ -113,24 +119,6 @@ pub fn execute(execution_context: &mut ExecutionContext, value: Value) -> Value 
         execution_context.values.get(&value).cloned().unwrap_or(value)
     } else if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
         evaluate(execution_context, value_inner.inner.clone())
-    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
-        value_inner.inner.last().cloned().unwrap_or_else(|| Value::new(NullValueInner))
-    } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
-        assert!(value_inner.target.is::<SymbolValueInner>());
-        execution_context.values.insert(value_inner.target.clone(), value_inner.source.clone());
-        Value::new(NullValueInner)
-    } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
-        let function = value_inner.function.downcast::<ExecutableFunctionValueInner>();
-        assert_eq!(function.arguments.len(), value_inner.arguments.len());
-        let mut result = function.body.clone();
-        for (from, to) in function.arguments.iter().cloned().zip(value_inner.arguments.clone()) {
-            assert!(from.is::<SymbolValueInner>());
-            result = replace(result, from, to);
-        }
-        assert!(result.is::<HoldValueInner>());
-        execute(execution_context, result)
-    } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
-        (execution_context.intrinsics.get(&value_inner.intrinsic).unwrap())(execution_context, value_inner.arguments.clone())
     } else {
         unreachable!()
     }

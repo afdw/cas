@@ -1,6 +1,8 @@
 mod data;
+mod serialization;
 mod value;
 
+use crate::serialization::SerializationStorage;
 use data::*;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
@@ -56,6 +58,10 @@ fn main() {
         let mut hasher = DefaultHasher::new();
         a.hash(&mut hasher);
         println!("{}", hasher.finish());
+        Value::new(NullValueInner)
+    });
+    define_intrinsic!(intrinsic_print => (execution_context, a) {
+        println!("{}", serialization::serialize_readable(a));
         Value::new(NullValueInner)
     });
     define_intrinsic!(intrinsic_floating_point_number_add => (execution_context, a, b) {
@@ -199,19 +205,19 @@ fn main() {
             ],
         }),
     );
-    println!(
-        "{:?}",
-        evaluate(
-            &mut execution_context,
-            Value::new(IntrinsicCallValueInner {
-                intrinsic: intrinsic_floating_point_number_add,
-                arguments: vec![
-                    Value::new(FloatingPointNumberValueInner { inner: 2.0 }),
-                    Value::new(FloatingPointNumberValueInner { inner: 3.0 }),
-                ],
-            })
-        )
-        .downcast::<FloatingPointNumberValueInner>()
-        .inner
+    let value = evaluate(
+        &mut execution_context,
+        Value::new(IntrinsicCallValueInner {
+            intrinsic: intrinsic_floating_point_number_add,
+            arguments: vec![
+                Value::new(FloatingPointNumberValueInner { inner: 2.0 }),
+                Value::new(FloatingPointNumberValueInner { inner: 3.0 }),
+            ],
+        }),
     );
+    println!("{}", serialization::serialize_readable(value.clone()));
+    let mut serialization_storage = SerializationStorage::new();
+    let serialized = serialization::serialize(&mut serialization_storage, value);
+    let deserialized = serialization::deserialize(&mut serialization_storage, &serialized);
+    println!("{}", serialization::serialize_readable(deserialized));
 }

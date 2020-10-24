@@ -1,4 +1,7 @@
+#![feature(iterator_fold_self)]
+
 mod data;
+mod gui;
 mod serialization;
 mod value;
 
@@ -197,7 +200,9 @@ fn main() {
                     }),
                 }),
                 Value::new(FunctionApplicationValueInner {
-                    function: Value::new(DereferenceValueInner { inner: function_dynamic_scope }),
+                    function: Value::new(DereferenceValueInner {
+                        inner: function_dynamic_scope.clone(),
+                    }),
                     arguments: Value::new(TupleValueInner {
                         inner: vec![
                             variable_a.clone(),
@@ -246,4 +251,8 @@ fn main() {
     let serialized = serialization::serialize(&mut serialization_storage, value);
     let deserialized = serialization::deserialize(&mut serialization_storage, &serialized);
     println!("{}", serialization::serialize_readable(deserialized));
+    gui::run(evaluate(
+        &mut execution_context,
+        Value::new(DereferenceValueInner { inner: function_dynamic_scope }),
+    ));
 }

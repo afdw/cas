@@ -91,11 +91,15 @@ fn main() {
             inner: vec![
                 Value::new(AssignmentValueInner {
                     source: Value::new(ExecutableFunctionValueInner {
-                        arguments: vec![argument_value.clone(), argument_from.clone(), argument_to.clone()],
+                        arguments: Value::new(TupleValueInner {
+                            inner: vec![argument_value.clone(), argument_from.clone(), argument_to.clone()],
+                        }),
                         body: Value::new(HoldValueInner {
                             inner: Value::new(IntrinsicCallValueInner {
                                 intrinsic: intrinsic_replace,
-                                arguments: vec![argument_value, argument_from, argument_to],
+                                arguments: Value::new(TupleValueInner {
+                                    inner: vec![argument_value, argument_from, argument_to],
+                                }),
                             }),
                         }),
                     }),
@@ -103,11 +107,13 @@ fn main() {
                 }),
                 Value::new(AssignmentValueInner {
                     source: Value::new(ExecutableFunctionValueInner {
-                        arguments: vec![argument_a.clone()],
+                        arguments: Value::new(TupleValueInner {
+                            inner: vec![argument_a.clone()],
+                        }),
                         body: Value::new(HoldValueInner {
                             inner: Value::new(IntrinsicCallValueInner {
                                 intrinsic: intrinsic_make_hold,
-                                arguments: vec![argument_a],
+                                arguments: Value::new(TupleValueInner { inner: vec![argument_a] }),
                             }),
                         }),
                     }),
@@ -115,45 +121,55 @@ fn main() {
                 }),
                 Value::new(AssignmentValueInner {
                     source: Value::new(ExecutableFunctionValueInner {
-                        arguments: vec![argument_symbol.clone(), argument_inner.clone()],
+                        arguments: Value::new(TupleValueInner {
+                            inner: vec![argument_symbol.clone(), argument_inner.clone()],
+                        }),
                         body: Value::new(HoldValueInner {
                             inner: Value::new(ExecutableSequenceValueInner {
                                 inner: vec![
                                     Value::new(IntrinsicCallValueInner {
                                         intrinsic: intrinsic_push,
-                                        arguments: vec![Value::new(FunctionApplicationValueInner {
-                                            function: Value::new(DereferenceValueInner {
-                                                inner: function_replace.clone(),
-                                            }),
-                                            arguments: vec![
-                                                Value::new(FunctionApplicationValueInner {
-                                                    function: Value::new(DereferenceValueInner { inner: function_replace }),
-                                                    arguments: vec![
-                                                        Value::new(HoldValueInner {
-                                                            inner: Value::new(AssignmentValueInner {
-                                                                source: variable_a.clone(),
-                                                                target: variable_b.clone(),
+                                        arguments: Value::new(TupleValueInner {
+                                            inner: vec![Value::new(FunctionApplicationValueInner {
+                                                function: Value::new(DereferenceValueInner {
+                                                    inner: function_replace.clone(),
+                                                }),
+                                                arguments: Value::new(TupleValueInner {
+                                                    inner: vec![
+                                                        Value::new(FunctionApplicationValueInner {
+                                                            function: Value::new(DereferenceValueInner { inner: function_replace }),
+                                                            arguments: Value::new(TupleValueInner {
+                                                                inner: vec![
+                                                                    Value::new(HoldValueInner {
+                                                                        inner: Value::new(AssignmentValueInner {
+                                                                            source: variable_a.clone(),
+                                                                            target: variable_b.clone(),
+                                                                        }),
+                                                                    }),
+                                                                    Value::new(HoldValueInner { inner: variable_a.clone() }),
+                                                                    Value::new(FunctionApplicationValueInner {
+                                                                        function: Value::new(DereferenceValueInner { inner: function_make_hold }),
+                                                                        arguments: Value::new(TupleValueInner {
+                                                                            inner: vec![Value::new(DereferenceValueInner {
+                                                                                inner: argument_symbol.clone(),
+                                                                            })],
+                                                                        }),
+                                                                    }),
+                                                                ],
                                                             }),
                                                         }),
-                                                        Value::new(HoldValueInner { inner: variable_a.clone() }),
-                                                        Value::new(FunctionApplicationValueInner {
-                                                            function: Value::new(DereferenceValueInner { inner: function_make_hold }),
-                                                            arguments: vec![Value::new(DereferenceValueInner {
-                                                                inner: argument_symbol.clone(),
-                                                            })],
-                                                        }),
+                                                        Value::new(HoldValueInner { inner: variable_b }),
+                                                        Value::new(HoldValueInner { inner: argument_symbol }),
                                                     ],
                                                 }),
-                                                Value::new(HoldValueInner { inner: variable_b }),
-                                                Value::new(HoldValueInner { inner: argument_symbol }),
-                                            ],
-                                        })],
+                                            })],
+                                        }),
                                     }),
                                     Value::new(ReleaseValueInner { inner: argument_inner }),
                                     Value::new(ReleaseValueInner {
                                         inner: Value::new(IntrinsicCallValueInner {
                                             intrinsic: intrinsic_pop,
-                                            arguments: vec![],
+                                            arguments: Value::new(TupleValueInner { inner: vec![] }),
                                         }),
                                     }),
                                     Value::new(NullValueInner),
@@ -176,31 +192,39 @@ fn main() {
                 }),
                 Value::new(IntrinsicCallValueInner {
                     intrinsic: intrinsic_print_hash.clone(),
-                    arguments: vec![Value::new(DereferenceValueInner { inner: variable_a.clone() })],
+                    arguments: Value::new(TupleValueInner {
+                        inner: vec![Value::new(DereferenceValueInner { inner: variable_a.clone() })],
+                    }),
                 }),
                 Value::new(FunctionApplicationValueInner {
                     function: Value::new(DereferenceValueInner { inner: function_dynamic_scope }),
-                    arguments: vec![
-                        variable_a.clone(),
-                        Value::new(HoldValueInner {
-                            inner: Value::new(ExecutableSequenceValueInner {
-                                inner: vec![
-                                    Value::new(AssignmentValueInner {
-                                        source: Value::new(FloatingPointNumberValueInner { inner: 2.0 }),
-                                        target: variable_a.clone(),
-                                    }),
-                                    Value::new(IntrinsicCallValueInner {
-                                        intrinsic: intrinsic_print_hash.clone(),
-                                        arguments: vec![Value::new(DereferenceValueInner { inner: variable_a.clone() })],
-                                    }),
-                                ],
+                    arguments: Value::new(TupleValueInner {
+                        inner: vec![
+                            variable_a.clone(),
+                            Value::new(HoldValueInner {
+                                inner: Value::new(ExecutableSequenceValueInner {
+                                    inner: vec![
+                                        Value::new(AssignmentValueInner {
+                                            source: Value::new(FloatingPointNumberValueInner { inner: 2.0 }),
+                                            target: variable_a.clone(),
+                                        }),
+                                        Value::new(IntrinsicCallValueInner {
+                                            intrinsic: intrinsic_print_hash.clone(),
+                                            arguments: Value::new(TupleValueInner {
+                                                inner: vec![Value::new(DereferenceValueInner { inner: variable_a.clone() })],
+                                            }),
+                                        }),
+                                    ],
+                                }),
                             }),
-                        }),
-                    ],
+                        ],
+                    }),
                 }),
                 Value::new(IntrinsicCallValueInner {
                     intrinsic: intrinsic_print_hash,
-                    arguments: vec![Value::new(DereferenceValueInner { inner: variable_a })],
+                    arguments: Value::new(TupleValueInner {
+                        inner: vec![Value::new(DereferenceValueInner { inner: variable_a })],
+                    }),
                 }),
             ],
         }),
@@ -209,10 +233,12 @@ fn main() {
         &mut execution_context,
         Value::new(IntrinsicCallValueInner {
             intrinsic: intrinsic_floating_point_number_add,
-            arguments: vec![
-                Value::new(FloatingPointNumberValueInner { inner: 2.0 }),
-                Value::new(FloatingPointNumberValueInner { inner: 3.0 }),
-            ],
+            arguments: Value::new(TupleValueInner {
+                inner: vec![
+                    Value::new(FloatingPointNumberValueInner { inner: 2.0 }),
+                    Value::new(FloatingPointNumberValueInner { inner: 3.0 }),
+                ],
+            }),
         }),
     );
     println!("{}", serialization::serialize_readable(value.clone()));

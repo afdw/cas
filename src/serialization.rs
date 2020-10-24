@@ -37,20 +37,25 @@ fn serialize_one<F: FnMut(Value) -> JsonValue>(value: Value, mut f: F) -> JsonVa
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         json!({
             "type": "ExecutableFunction",
-            "arguments": JsonValue::Array(value_inner.arguments.iter().cloned().map(&mut f).collect()),
+            "arguments": f(value_inner.arguments.clone()),
             "body": f(value_inner.body.clone()),
         })
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
         json!({
             "type": "FunctionApplication",
             "function": f(value_inner.function.clone()),
-            "arguments": JsonValue::Array(value_inner.arguments.iter().cloned().map(&mut f).collect()),
+            "arguments": f(value_inner.arguments.clone()),
         })
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         json!({
             "type": "IntrinsicCall",
             "intrinsic": f(value_inner.intrinsic.clone()),
-            "arguments": JsonValue::Array(value_inner.arguments.iter().cloned().map(&mut f).collect()),
+            "arguments": f(value_inner.arguments.clone()),
+        })
+    } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
+        json!({
+            "type": "Tuple",
+            "inner": JsonValue::Array(value_inner.inner.iter().cloned().map(&mut f).collect()),
         })
     } else if let Some(_) = value.try_downcast::<NullValueInner>() {
         json!({
@@ -90,16 +95,19 @@ fn deserialize_one<F: FnMut(JsonValue) -> Value>(entry: &JsonValue, mut f: F) ->
             inner: entry["inner"].clone().as_array().unwrap().iter().cloned().map(&mut f).collect(),
         }),
         "ExecutableFunction" => Value::new(ExecutableFunctionValueInner {
-            arguments: entry["arguments"].clone().as_array().unwrap().iter().cloned().map(&mut f).collect(),
+            arguments: f(entry["arguments"].clone()),
             body: f(entry["body"].clone()),
         }),
         "FunctionApplication" => Value::new(FunctionApplicationValueInner {
             function: f(entry["function"].clone()),
-            arguments: entry["arguments"].clone().as_array().unwrap().iter().cloned().map(&mut f).collect(),
+            arguments: f(entry["arguments"].clone()),
         }),
         "IntrinsicCall" => Value::new(IntrinsicCallValueInner {
             intrinsic: f(entry["intrinsic"].clone()),
-            arguments: entry["arguments"].clone().as_array().unwrap().iter().cloned().map(&mut f).collect(),
+            arguments: f(entry["arguments"].clone()),
+        }),
+        "Tuple" => Value::new(TupleValueInner {
+            inner: entry["inner"].clone().as_array().unwrap().iter().cloned().map(&mut f).collect(),
         }),
         "Null" => Value::new(NullValueInner),
         "Symbol" => Value::new(SymbolValueInner {

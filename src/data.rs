@@ -30,18 +30,22 @@ pub struct ExecutableSequenceValueInner {
 }
 
 pub struct ExecutableFunctionValueInner {
-    pub arguments: Vec<Value>,
+    pub arguments: Value,
     pub body: Value,
 }
 
 pub struct FunctionApplicationValueInner {
     pub function: Value,
-    pub arguments: Vec<Value>,
+    pub arguments: Value,
 }
 
 pub struct IntrinsicCallValueInner {
     pub intrinsic: Value,
-    pub arguments: Vec<Value>,
+    pub arguments: Value,
+}
+
+pub struct TupleValueInner {
+    pub inner: Vec<Value>,
 }
 
 pub struct NullValueInner;
@@ -76,7 +80,7 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
             .last()
             .unwrap_or_else(|| Value::new(NullValueInner))
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
-        let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
+        let arguments = evaluate(execution_context, value_inner.arguments.clone());
         let body = evaluate(execution_context, value_inner.body.clone());
         if arguments == value_inner.arguments && body == value_inner.body {
             value
@@ -85,11 +89,13 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
         }
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
         let function = evaluate(execution_context, value_inner.function.clone());
-        let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect::<Vec<_>>();
+        let arguments = evaluate(execution_context, value_inner.arguments.clone());
         let function = function.downcast::<ExecutableFunctionValueInner>();
-        assert_eq!(function.arguments.len(), arguments.len());
+        let arguments = arguments.downcast::<TupleValueInner>().inner.clone();
+        let function_arguments = function.arguments.downcast::<TupleValueInner>().inner.clone();
+        assert_eq!(function_arguments.len(), arguments.len());
         let mut result = function.body.clone();
-        for (from, to) in function.arguments.iter().cloned().zip(arguments) {
+        for (from, to) in function_arguments.iter().cloned().zip(arguments) {
             assert!(from.is::<SymbolValueInner>());
             result = replace(result, from, to);
         }
@@ -97,8 +103,16 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
         evaluate(execution_context, Value::new(ReleaseValueInner { inner: result }))
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         let intrinsic = evaluate(execution_context, value_inner.intrinsic.clone());
-        let arguments = value_inner.arguments.iter().map(|x| evaluate(execution_context, x.clone())).collect();
+        let arguments = evaluate(execution_context, value_inner.arguments.clone());
+        let arguments = arguments.downcast::<TupleValueInner>().inner.clone();
         (execution_context.intrinsics.get(&intrinsic).unwrap())(execution_context, arguments)
+    } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
+        let inner = value_inner.inner.iter().map(|x| evaluate(execution_context, x.clone())).collect();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(TupleValueInner { inner })
+        }
     } else {
         value
     }
@@ -154,7 +168,7 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
             Value::new(ExecutableSequenceValueInner { inner })
         }
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
-        let arguments = value_inner.arguments.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
+        let arguments = replace(value_inner.arguments.clone(), from.clone(), to.clone());
         let body = replace(value_inner.body.clone(), from, to);
         if arguments == value_inner.arguments && body == value_inner.body {
             value
@@ -163,7 +177,7 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
         }
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
         let function = replace(value_inner.function.clone(), from.clone(), to.clone());
-        let arguments = value_inner.arguments.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
+        let arguments = replace(value_inner.arguments.clone(), from, to);
         if function == value_inner.function && arguments == value_inner.arguments {
             value
         } else {
@@ -171,11 +185,18 @@ pub fn replace(value: Value, from: Value, to: Value) -> Value {
         }
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         let intrinsic = replace(value_inner.intrinsic.clone(), from.clone(), to.clone());
-        let arguments = value_inner.arguments.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
+        let arguments = replace(value_inner.arguments.clone(), from, to);
         if intrinsic == value_inner.intrinsic && arguments == value_inner.arguments {
             value
         } else {
             Value::new(IntrinsicCallValueInner { intrinsic, arguments })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
+        let inner = value_inner.inner.iter().map(|x| replace(x.clone(), from.clone(), to.clone())).collect();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(TupleValueInner { inner })
         }
     } else {
         value

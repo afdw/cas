@@ -11,16 +11,10 @@ struct RenderResult {
     height: f64,
 }
 
-fn surface_pattern_to_pattern(surface_pattern: SurfacePattern) -> Pattern {
-    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
-    cr.set_source(&surface_pattern);
-    cr.get_source()
-}
-
 fn render_empty(width: f64, height: f64) -> RenderResult {
     let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     RenderResult {
-        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width,
         height,
     }
@@ -34,7 +28,7 @@ fn render_text(text: &str) -> RenderResult {
     cr.show_text(text);
     cr.restore();
     RenderResult {
-        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width: text_extents.width,
         height: text_extents.height,
     }
@@ -48,7 +42,7 @@ fn render_underline(width: f64, red: f64, green: f64, blue: f64) -> RenderResult
     cr.line_to(width, 1.0);
     cr.stroke();
     RenderResult {
-        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width,
         height: 2.0,
     }
@@ -60,7 +54,7 @@ fn render_scaled(render_result: RenderResult, sx: f64, sy: f64) -> RenderResult 
     cr.set_source(&render_result.pattern);
     cr.paint();
     RenderResult {
-        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width: render_result.width * sx,
         height: render_result.height * sy,
     }
@@ -71,7 +65,7 @@ fn render_rasterized(render_result: RenderResult) -> RenderResult {
     cr.set_source(&render_result.pattern);
     cr.paint();
     RenderResult {
-        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width: render_result.width,
         height: render_result.height,
     }
@@ -121,12 +115,12 @@ fn render_components(layout: ComponentsLayout, components: &[RenderResult]) -> R
     cr.restore();
     match layout {
         ComponentsLayout::Top | ComponentsLayout::Middle | ComponentsLayout::Bottom => RenderResult {
-            pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+            pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
             width: components.iter().map(|render_result| render_result.width).sum(),
             height: max_height,
         },
         ComponentsLayout::Left | ComponentsLayout::Center | ComponentsLayout::Right => RenderResult {
-            pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+            pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
             width: max_width,
             height: components.iter().map(|render_result| render_result.height).sum(),
         },

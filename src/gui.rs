@@ -1,5 +1,5 @@
 use crate::{data::*, Value};
-use cairo::{Context, Pattern};
+use cairo::{Content, Context, Format, ImageSurface, Pattern, RecordingSurface, SurfacePattern};
 use gio::prelude::*;
 use gtk::{prelude::*, Application, ApplicationWindow, DrawingArea};
 use itertools::Itertools;
@@ -11,40 +11,69 @@ struct RenderResult {
     height: f64,
 }
 
-fn render_empty(cr: &Context, width: f64, height: f64) -> RenderResult {
-    cr.push_group();
+fn surface_pattern_to_pattern(surface_pattern: SurfacePattern) -> Pattern {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
+    cr.set_source(&surface_pattern);
+    cr.get_source()
+}
+
+fn render_empty(width: f64, height: f64) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     RenderResult {
-        pattern: cr.pop_group(),
+        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
         width,
         height,
     }
 }
 
-fn render_text(cr: &Context, text: &str) -> RenderResult {
-    cr.push_group();
+fn render_text(text: &str) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     let text_extents = cr.text_extents(text);
     cr.save();
-    cr.set_source_rgb(0.0, 0.0, 0.0);
     cr.move_to(-text_extents.x_bearing, -text_extents.y_bearing);
     cr.show_text(text);
     cr.restore();
     RenderResult {
-        pattern: cr.pop_group(),
+        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
         width: text_extents.width,
         height: text_extents.height,
     }
 }
 
-fn render_underline(cr: &Context, width: f64) -> RenderResult {
-    cr.push_group();
+fn render_underline(width: f64, red: f64, green: f64, blue: f64) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     cr.set_line_width(1.0);
+    cr.set_source_rgb(red, green, blue);
     cr.move_to(0.0, 1.5);
     cr.line_to(width, 1.0);
     cr.stroke();
     RenderResult {
-        pattern: cr.pop_group(),
+        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
         width,
         height: 2.0,
+    }
+}
+
+fn render_scaled(render_result: RenderResult, sx: f64, sy: f64) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
+    cr.scale(sx, sy);
+    cr.set_source(&render_result.pattern);
+    cr.paint();
+    RenderResult {
+        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        width: render_result.width * sx,
+        height: render_result.height * sy,
+    }
+}
+
+fn render_rasterized(render_result: RenderResult) -> RenderResult {
+    let cr = Context::new(&*ImageSurface::create(Format::ARgb32, render_result.width.ceil() as i32, render_result.height.ceil() as i32).unwrap());
+    cr.set_source(&render_result.pattern);
+    cr.paint();
+    RenderResult {
+        pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
+        width: render_result.width,
+        height: render_result.height,
     }
 }
 
@@ -58,8 +87,8 @@ enum ComponentsLayout {
     Right,
 }
 
-fn render_components(cr: &Context, layout: ComponentsLayout, components: &[RenderResult]) -> RenderResult {
-    cr.push_group();
+fn render_components(layout: ComponentsLayout, components: &[RenderResult]) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     cr.save();
     let max_height = components.iter().map(|render_result| render_result.height).fold_first(f64::max).unwrap_or(0.0);
     let max_width = components.iter().map(|render_result| render_result.width).fold_first(f64::max).unwrap_or(0.0);
@@ -92,97 +121,83 @@ fn render_components(cr: &Context, layout: ComponentsLayout, components: &[Rende
     cr.restore();
     match layout {
         ComponentsLayout::Top | ComponentsLayout::Middle | ComponentsLayout::Bottom => RenderResult {
-            pattern: cr.pop_group(),
+            pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
             width: components.iter().map(|render_result| render_result.width).sum(),
             height: max_height,
         },
         ComponentsLayout::Left | ComponentsLayout::Center | ComponentsLayout::Right => RenderResult {
-            pattern: cr.pop_group(),
+            pattern: surface_pattern_to_pattern(SurfacePattern::create(&cr.get_target())),
             width: max_width,
             height: components.iter().map(|render_result| render_result.height).sum(),
         },
     }
 }
 
-fn render(cr: &Context, value: Value) -> RenderResult {
+fn render(value: Value) -> RenderResult {
     if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
-        let inner_render_result = render(cr, value_inner.inner.clone());
-        cr.set_source_rgb(1.0, 0.0, 0.0);
-        let underline_render_result = render_underline(cr, inner_render_result.width);
-        render_components(cr, ComponentsLayout::Center, &[inner_render_result, underline_render_result])
+        let inner_render_result = render(value_inner.inner.clone());
+        let underline_render_result = render_underline(inner_render_result.width, 1.0, 0.0, 0.0);
+        render_components(ComponentsLayout::Center, &[inner_render_result, underline_render_result])
     } else if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
-        let inner_render_result = render(cr, value_inner.inner.clone());
-        cr.set_source_rgb(0.0, 1.0, 0.0);
-        let underline_render_result = render_underline(cr, inner_render_result.width);
-        render_components(cr, ComponentsLayout::Center, &[inner_render_result, underline_render_result])
+        let inner_render_result = render(value_inner.inner.clone());
+        let underline_render_result = render_underline(inner_render_result.width, 0.0, 1.0, 0.0);
+        render_components(ComponentsLayout::Center, &[inner_render_result, underline_render_result])
     } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
         render_components(
-            cr,
             ComponentsLayout::Middle,
-            &[
-                render(cr, value_inner.target.clone()),
-                render_text(cr, "<-"),
-                render(cr, value_inner.source.clone()),
-            ],
+            &[render(value_inner.target.clone()), render_text("<-"), render(value_inner.source.clone())],
         )
     } else if let Some(value_inner) = value.try_downcast::<DereferenceValueInner>() {
-        render_components(cr, ComponentsLayout::Middle, &[render_text(cr, "*"), render(cr, value_inner.inner.clone())])
+        render_components(ComponentsLayout::Middle, &[render_text("*"), render(value_inner.inner.clone())])
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
         render_components(
-            cr,
             ComponentsLayout::Left,
-            &std::iter::once(render_text(cr, "{"))
+            &std::iter::once(render_text("{"))
                 .chain(
                     value_inner
                         .inner
                         .iter()
-                        .map(|value| render_components(cr, ComponentsLayout::Middle, &[render_empty(cr, 20.0, 0.0), render(cr, value.clone())]))
-                        .intersperse(render_empty(cr, 0.0, 3.0)),
+                        .map(|value| render_components(ComponentsLayout::Middle, &[render_empty(20.0, 0.0), render(value.clone())]))
+                        .intersperse(render_empty(0.0, 3.0)),
                 )
-                .chain(std::iter::once(render_text(cr, "}")))
+                .chain(std::iter::once(render_text("}")))
                 .collect::<Vec<_>>(),
         )
     } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
         render_components(
-            cr,
             ComponentsLayout::Middle,
-            &[
-                render(cr, value_inner.arguments.clone()),
-                render_text(cr, "->"),
-                render(cr, value_inner.body.clone()),
-            ],
+            &[render(value_inner.arguments.clone()), render_text("->"), render(value_inner.body.clone())],
         )
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
         render_components(
-            cr,
             ComponentsLayout::Middle,
-            &[render(cr, value_inner.function.clone()), render(cr, value_inner.arguments.clone())],
+            &[render(value_inner.function.clone()), render(value_inner.arguments.clone())],
         )
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         render_components(
-            cr,
             ComponentsLayout::Middle,
-            &[render(cr, value_inner.intrinsic.clone()), render(cr, value_inner.arguments.clone())],
+            &[render(value_inner.intrinsic.clone()), render(value_inner.arguments.clone())],
         )
     } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
         render_components(
-            cr,
             ComponentsLayout::Middle,
-            &std::iter::once(render_text(cr, "("))
-                .chain(value_inner.inner.iter().map(|value| render(cr, value.clone())).intersperse(render_components(
-                    cr,
-                    ComponentsLayout::Bottom,
-                    &[render_text(cr, ","), render_empty(cr, 5.0, 10.0)],
-                )))
-                .chain(std::iter::once(render_text(cr, ")")))
+            &std::iter::once(render_text("("))
+                .chain(
+                    value_inner
+                        .inner
+                        .iter()
+                        .map(|value| render(value.clone()))
+                        .intersperse(render_components(ComponentsLayout::Bottom, &[render_text(","), render_empty(5.0, 10.0)])),
+                )
+                .chain(std::iter::once(render_text(")")))
                 .collect::<Vec<_>>(),
         )
     } else if let Some(_) = value.try_downcast::<NullValueInner>() {
-        render_text(cr, "null")
+        render_text("null")
     } else if let Some(value_inner) = value.try_downcast::<SymbolValueInner>() {
-        render_text(cr, &value_inner.name)
+        render_text(&value_inner.name)
     } else if let Some(value_inner) = value.try_downcast::<FloatingPointNumberValueInner>() {
-        render_text(cr, &value_inner.inner.to_string())
+        render_text(&value_inner.inner.to_string())
     } else {
         unreachable!()
     }
@@ -192,14 +207,12 @@ pub fn run(value: Value) {
     let application = Application::new(None, Default::default()).unwrap();
     application.connect_activate(move |application| {
         let window = ApplicationWindow::new(application);
-        window.set_default_size(1280, 720);
+        window.set_default_size(1366, 768);
         window.set_position(gtk::WindowPosition::Center);
         let drawing_area = DrawingArea::new();
         let value = value.clone();
         drawing_area.connect_draw(move |_, cr| {
-            cr.scale(2.0, 2.0);
-            let render_result = render(cr, value.clone());
-            cr.set_source(&render_result.pattern);
+            cr.set_source(&render_rasterized(render_scaled(render(value.clone()), 1.3, 1.3)).pattern);
             cr.paint();
             Inhibit(false)
         });

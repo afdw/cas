@@ -90,17 +90,25 @@ pub fn evaluate_once(execution_context: &mut ExecutionContext, value: Value) -> 
     } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
         let function = evaluate(execution_context, value_inner.function.clone());
         let arguments = evaluate(execution_context, value_inner.arguments.clone());
-        let function = function.downcast::<ExecutableFunctionValueInner>();
-        let arguments = arguments.downcast::<TupleValueInner>().inner.clone();
-        let function_arguments = function.arguments.downcast::<TupleValueInner>().inner.clone();
-        assert_eq!(function_arguments.len(), arguments.len());
-        let mut result = function.body.clone();
-        for (from, to) in function_arguments.iter().cloned().zip(arguments) {
-            assert!(from.is::<SymbolValueInner>());
-            result = replace(result, from, to);
+        #[allow(clippy::collapsible_if)]
+        if let Some(function) = function.try_downcast::<ExecutableFunctionValueInner>() {
+            let arguments = arguments.downcast::<TupleValueInner>().inner.clone();
+            let function_arguments = function.arguments.downcast::<TupleValueInner>().inner.clone();
+            assert_eq!(function_arguments.len(), arguments.len());
+            let mut result = function.body.clone();
+            for (from, to) in function_arguments.iter().cloned().zip(arguments) {
+                assert!(from.is::<SymbolValueInner>());
+                result = replace(result, from, to);
+            }
+            assert!(result.is::<HoldValueInner>());
+            evaluate(execution_context, Value::new(ReleaseValueInner { inner: result }))
+        } else {
+            if function == value_inner.function && arguments == value_inner.arguments {
+                value
+            } else {
+                Value::new(FunctionApplicationValueInner { function, arguments })
+            }
         }
-        assert!(result.is::<HoldValueInner>());
-        evaluate(execution_context, Value::new(ReleaseValueInner { inner: result }))
     } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
         let intrinsic = evaluate(execution_context, value_inner.intrinsic.clone());
         let arguments = evaluate(execution_context, value_inner.arguments.clone());

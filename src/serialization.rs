@@ -128,12 +128,16 @@ pub fn serialize_readable(value: Value) -> String {
 }
 
 pub struct SerializationStorage {
-    known_names: IndexMap<Value, Uuid>,
+    known_ids: IndexMap<Value, Uuid>,
+    known_value: HashMap<Uuid, Value>,
 }
 
 impl SerializationStorage {
     pub(crate) fn new() -> Self {
-        SerializationStorage { known_names: IndexMap::new() }
+        SerializationStorage {
+            known_ids: IndexMap::new(),
+            known_value: HashMap::new(),
+        }
     }
 }
 
@@ -157,16 +161,16 @@ pub fn serialize(serialization_storage: &mut SerializationStorage, input_value: 
             if !done.contains(&value) {
                 queue.push_back(value.clone());
             }
-            serialize_id(*serialization_storage.known_names.entry(value).or_insert_with(Uuid::new_v4))
+            serialize_id(*serialization_storage.known_ids.entry(value).or_insert_with(Uuid::new_v4))
         };
         let mut entry = serialize_one(current.clone(), &mut f);
         entry["id"] = f(current.clone());
         unordered.insert(current, entry);
     }
     let mut ordered = unordered.into_iter().collect::<Vec<_>>();
-    ordered.sort_by_key(|(value, _)| serialization_storage.known_names.get_index_of(value).unwrap());
+    ordered.sort_by_key(|(value, _)| serialization_storage.known_ids.get_index_of(value).unwrap());
     serde_json::to_string_pretty(&json!({
-        "id": serialize_id(serialization_storage.known_names[&input_value]),
+        "id": serialize_id(serialization_storage.known_ids[&input_value]),
         "values": JsonValue::Array(ordered.into_iter().map(|(_, entry)| entry).collect()),
     }))
     .unwrap()
@@ -176,12 +180,18 @@ pub fn deserialize(mut serialization_storage: &mut SerializationStorage, input_s
     let parsed: JsonValue = serde_json::from_str(input_str).unwrap();
     let mut deserialized = HashMap::new();
     fn f(serialization_storage: &mut SerializationStorage, deserialized: &mut HashMap<Uuid, Value>, entry: &JsonValue) -> Value {
-        let value = deserialize_one(entry, |entry| f(serialization_storage, deserialized, &entry));
-        if serialization_storage.known_names.contains_key(&value) {
-            serialization_storage.known_names.shift_remove(&value);
+        let id = deserialize_id(&entry["id"]);
+        if let Some(value) = serialization_storage.known_value.get(&id) {
+            value.clone()
+        } else {
+            let value = deserialize_one(entry, |entry| f(serialization_storage, deserialized, &entry));
+            if serialization_storage.known_ids.contains_key(&value) {
+                serialization_storage.known_ids.shift_remove(&value);
+            }
+            serialization_storage.known_ids.insert(value.clone(), id);
+            serialization_storage.known_value.insert(id, value.clone());
+            value
         }
-        serialization_storage.known_names.insert(value.clone(), deserialize_id(&entry["id"]));
-        value
     }
     f(
         &mut serialization_storage,

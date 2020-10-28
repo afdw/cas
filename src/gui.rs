@@ -3,6 +3,7 @@ use cairo::{Content, Context, Format, ImageSurface, Pattern, RecordingSurface, S
 use gio::prelude::*;
 use gtk::{prelude::*, Application, ApplicationWindow, DrawingArea};
 use itertools::Itertools;
+use std::{cell::RefCell, rc::Rc};
 
 fn get_parts(value: Value) -> Vec<Value> {
     if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
@@ -108,11 +109,11 @@ fn replace_parts(value: Value, parts: &[Value]) -> Value {
     }
 }
 
-fn get_part(value: Value, path: &[usize]) -> Value {
+fn get_part(value: Value, path: &[usize]) -> Option<Value> {
     if path.is_empty() {
-        value
+        Some(value)
     } else {
-        get_part(get_parts(value)[path[0]].clone(), &path[1..])
+        get_part(get_parts(value).get(path[0])?.clone(), &path[1..])
     }
 }
 
@@ -167,6 +168,21 @@ fn render_underline(width: f64, red: f64, green: f64, blue: f64) -> RenderResult
         pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width,
         height: 2.0,
+    }
+}
+
+fn render_highlighted(render_result: RenderResult, red: f64, green: f64, blue: f64, alpha: f64) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
+    cr.set_line_width(1.0);
+    cr.set_source_rgba(red, green, blue, alpha);
+    cr.rectangle(0.0, 0.0, render_result.width, render_result.height);
+    cr.fill();
+    cr.set_source(&render_result.pattern);
+    cr.paint();
+    RenderResult {
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
+        width: render_result.width,
+        height: render_result.height,
     }
 }
 
@@ -304,8 +320,22 @@ fn render_value<RenderPart: FnMut(usize) -> RenderResult>(value: Value, mut rend
     }
 }
 
-fn render(value: Value) -> RenderResult {
-    render_value(value.clone(), |part_index| render(get_parts(value.clone())[part_index].clone()))
+fn render(value: Value, selection: Option<&[usize]>) -> RenderResult {
+    let render_result = render_value(value.clone(), |part_index| {
+        render(
+            get_parts(value.clone())[part_index].clone(),
+            if selection.is_some() && !selection.unwrap().is_empty() && selection.unwrap()[0] == part_index {
+                Some(&selection.unwrap()[1..])
+            } else {
+                None
+            },
+        )
+    });
+    if selection.is_some() && selection.unwrap().is_empty() {
+        render_highlighted(render_result, 0.0, 0.0, 0.0, 0.2)
+    } else {
+        render_result
+    }
 }
 
 pub fn run(value: Value) {
@@ -315,9 +345,48 @@ pub fn run(value: Value) {
         window.set_default_size(1366, 768);
         window.set_position(gtk::WindowPosition::Center);
         let drawing_area = DrawingArea::new();
-        let value = value.clone();
+        drawing_area.set_can_focus(true);
+        let value = Rc::new(RefCell::new(value.clone()));
+        let selection = Rc::new(RefCell::new(vec![]));
+        {
+            let value = value.clone();
+            let selection = selection.clone();
+            drawing_area.connect_key_press_event(move |drawing_area, event| match event.get_keyval() {
+                gdk::keys::constants::Down => {
+                    let part = get_part(value.borrow().clone(), &selection.borrow());
+                    if part.is_some() && !get_parts(part.unwrap()).is_empty() {
+                        selection.borrow_mut().push(0);
+                        drawing_area.queue_draw();
+                    }
+                    Inhibit(true)
+                }
+                gdk::keys::constants::Up => {
+                    selection.borrow_mut().pop();
+                    drawing_area.queue_draw();
+                    Inhibit(true)
+                }
+                gdk::keys::constants::Left => {
+                    if !selection.borrow().is_empty() && *selection.borrow().last().unwrap() >= 1 {
+                        *selection.borrow_mut().last_mut().unwrap() -= 1;
+                        drawing_area.queue_draw();
+                    }
+                    Inhibit(true)
+                }
+                gdk::keys::constants::Right => {
+                    if !selection.borrow().is_empty() {
+                        let part = get_part(value.borrow().clone(), &selection.borrow()[..selection.borrow().len() - 1]);
+                        if part.is_some() && selection.borrow().last().unwrap() + 1 < get_parts(part.unwrap()).len() {
+                            *selection.borrow_mut().last_mut().unwrap() += 1;
+                            drawing_area.queue_draw();
+                        }
+                    }
+                    Inhibit(true)
+                }
+                _ => Inhibit(false),
+            });
+        }
         drawing_area.connect_draw(move |_, cr| {
-            cr.set_source(&render_rasterized(render_scaled(render(value.clone()), 1.3, 1.3)).pattern);
+            cr.set_source(&render_rasterized(render_scaled(render(value.borrow().clone(), Some(&selection.borrow())), 1.3, 1.3)).pattern);
             cr.paint();
             Inhibit(false)
         });

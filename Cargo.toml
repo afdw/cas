@@ -17,5 +17,6 @@ indexmap = "1.6.0"
 serde_json = { version = "1.0.59", features = ["preserve_order"] }
 cairo-rs = {version = "0.9.1", features = ["v1_16"]}
 gio = {version = "0.9.1", features = ["v2_64"]}
+gdk = "0.13.2"
 gtk = {version = "0.9.2", features = ["v3_16"]}
 #glib = "0.10.3"

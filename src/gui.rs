@@ -4,6 +4,128 @@ use gio::prelude::*;
 use gtk::{prelude::*, Application, ApplicationWindow, DrawingArea};
 use itertools::Itertools;
 
+fn get_parts(value: Value) -> Vec<Value> {
+    if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
+        vec![value_inner.inner.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
+        vec![value_inner.inner.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
+        vec![value_inner.source.clone(), value_inner.target.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<DereferenceValueInner>() {
+        vec![value_inner.inner.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
+        value_inner.inner.clone()
+    } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
+        vec![value_inner.arguments.clone(), value_inner.body.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
+        vec![value_inner.function.clone(), value_inner.arguments.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
+        vec![value_inner.intrinsic.clone(), value_inner.arguments.clone()]
+    } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
+        value_inner.inner.clone()
+    } else {
+        vec![]
+    }
+}
+
+fn replace_parts(value: Value, parts: &[Value]) -> Value {
+    if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
+        assert_eq!(parts.len(), 1);
+        let inner = parts[0].clone();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(HoldValueInner { inner })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
+        assert_eq!(parts.len(), 1);
+        let inner = parts[0].clone();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(ReleaseValueInner { inner })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
+        assert_eq!(parts.len(), 2);
+        let source = parts[0].clone();
+        let target = parts[1].clone();
+        if source == value_inner.source && target == value_inner.target {
+            value
+        } else {
+            Value::new(AssignmentValueInner { source, target })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<DereferenceValueInner>() {
+        assert_eq!(parts.len(), 1);
+        let inner = parts[0].clone();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(DereferenceValueInner { inner })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
+        let inner = parts.to_vec();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(ExecutableSequenceValueInner { inner })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
+        assert_eq!(parts.len(), 2);
+        let arguments = parts[0].clone();
+        let body = parts[1].clone();
+        if arguments == value_inner.arguments && body == value_inner.body {
+            value
+        } else {
+            Value::new(ExecutableFunctionValueInner { arguments, body })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
+        assert_eq!(parts.len(), 2);
+        let function = parts[0].clone();
+        let arguments = parts[1].clone();
+        if function == value_inner.function && arguments == value_inner.arguments {
+            value
+        } else {
+            Value::new(FunctionApplicationValueInner { function, arguments })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
+        assert_eq!(parts.len(), 2);
+        let intrinsic = parts[0].clone();
+        let arguments = parts[1].clone();
+        if intrinsic == value_inner.intrinsic && arguments == value_inner.arguments {
+            value
+        } else {
+            Value::new(IntrinsicCallValueInner { intrinsic, arguments })
+        }
+    } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
+        let inner = parts.to_vec();
+        if inner == value_inner.inner {
+            value
+        } else {
+            Value::new(TupleValueInner { inner })
+        }
+    } else {
+        unreachable!()
+    }
+}
+
+fn get_part(value: Value, path: &[usize]) -> Value {
+    if path.is_empty() {
+        value
+    } else {
+        get_part(get_parts(value)[path[0]].clone(), &path[1..])
+    }
+}
+
+fn replace_part(value: Value, path: &[usize], replacement: Value) -> Value {
+    if path.is_empty() {
+        replacement
+    } else {
+        let mut parts = get_parts(value.clone());
+        parts[path[0]] = replace_part(parts[path[0]].clone(), &path[1..], replacement);
+        replace_parts(value, &parts)
+    }
+}
+
 #[derive(Clone)]
 struct RenderResult {
     pattern: Pattern,
@@ -127,60 +249,45 @@ fn render_components(layout: ComponentsLayout, components: &[RenderResult]) -> R
     }
 }
 
-fn render(value: Value) -> RenderResult {
-    if let Some(value_inner) = value.try_downcast::<HoldValueInner>() {
-        let inner_render_result = render(value_inner.inner.clone());
+fn render_value<RenderPart: FnMut(usize) -> RenderResult>(value: Value, mut render_part: RenderPart) -> RenderResult {
+    #[allow(clippy::if_same_then_else)]
+    if value.is::<HoldValueInner>() {
+        let inner_render_result = render_part(0);
         let underline_render_result = render_underline(inner_render_result.width, 1.0, 0.0, 0.0);
         render_components(ComponentsLayout::Center, &[inner_render_result, underline_render_result])
-    } else if let Some(value_inner) = value.try_downcast::<ReleaseValueInner>() {
-        let inner_render_result = render(value_inner.inner.clone());
+    } else if value.is::<ReleaseValueInner>() {
+        let inner_render_result = render_part(0);
         let underline_render_result = render_underline(inner_render_result.width, 0.0, 1.0, 0.0);
         render_components(ComponentsLayout::Center, &[inner_render_result, underline_render_result])
-    } else if let Some(value_inner) = value.try_downcast::<AssignmentValueInner>() {
-        render_components(
-            ComponentsLayout::Middle,
-            &[render(value_inner.target.clone()), render_text("<-"), render(value_inner.source.clone())],
-        )
-    } else if let Some(value_inner) = value.try_downcast::<DereferenceValueInner>() {
-        render_components(ComponentsLayout::Middle, &[render_text("*"), render(value_inner.inner.clone())])
+    } else if value.is::<AssignmentValueInner>() {
+        render_components(ComponentsLayout::Middle, &[render_part(1), render_text("<-"), render_part(0)])
+    } else if value.is::<DereferenceValueInner>() {
+        render_components(ComponentsLayout::Middle, &[render_text("*"), render_part(0)])
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
         render_components(
             ComponentsLayout::Left,
             &std::iter::once(render_text("{"))
                 .chain(
-                    value_inner
-                        .inner
-                        .iter()
-                        .map(|value| render_components(ComponentsLayout::Middle, &[render_empty(20.0, 0.0), render(value.clone())]))
+                    (0..value_inner.inner.len())
+                        .map(|part_index| render_components(ComponentsLayout::Middle, &[render_empty(20.0, 0.0), render_part(part_index)]))
                         .intersperse(render_empty(0.0, 3.0)),
                 )
                 .chain(std::iter::once(render_text("}")))
                 .collect::<Vec<_>>(),
         )
-    } else if let Some(value_inner) = value.try_downcast::<ExecutableFunctionValueInner>() {
-        render_components(
-            ComponentsLayout::Middle,
-            &[render(value_inner.arguments.clone()), render_text("->"), render(value_inner.body.clone())],
-        )
-    } else if let Some(value_inner) = value.try_downcast::<FunctionApplicationValueInner>() {
-        render_components(
-            ComponentsLayout::Middle,
-            &[render(value_inner.function.clone()), render(value_inner.arguments.clone())],
-        )
-    } else if let Some(value_inner) = value.try_downcast::<IntrinsicCallValueInner>() {
-        render_components(
-            ComponentsLayout::Middle,
-            &[render(value_inner.intrinsic.clone()), render(value_inner.arguments.clone())],
-        )
+    } else if value.is::<ExecutableFunctionValueInner>() {
+        render_components(ComponentsLayout::Middle, &[render_part(0), render_text("->"), render_part(1)])
+    } else if value.is::<FunctionApplicationValueInner>() {
+        render_components(ComponentsLayout::Middle, &[render_part(0), render_part(1)])
+    } else if value.is::<IntrinsicCallValueInner>() {
+        render_components(ComponentsLayout::Middle, &[render_part(0), render_part(1)])
     } else if let Some(value_inner) = value.try_downcast::<TupleValueInner>() {
         render_components(
             ComponentsLayout::Middle,
             &std::iter::once(render_text("("))
                 .chain(
-                    value_inner
-                        .inner
-                        .iter()
-                        .map(|value| render(value.clone()))
+                    (0..value_inner.inner.len())
+                        .map(|part_index| render_part(part_index))
                         .intersperse(render_components(ComponentsLayout::Bottom, &[render_text(","), render_empty(5.0, 10.0)])),
                 )
                 .chain(std::iter::once(render_text(")")))
@@ -195,6 +302,10 @@ fn render(value: Value) -> RenderResult {
     } else {
         unreachable!()
     }
+}
+
+fn render(value: Value) -> RenderResult {
+    render_value(value.clone(), |part_index| render(get_parts(value.clone())[part_index].clone()))
 }
 
 pub fn run(value: Value) {

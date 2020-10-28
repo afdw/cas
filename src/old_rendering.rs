@@ -118,4 +118,19 @@ impl SymbolValueInner {
         Value::new(SymbolValueInner { name })
     }
 }
+
+fn render_frame(render_result: RenderResult) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
+    cr.set_line_width(1.0);
+    cr.rectangle(0.5, 0.5, render_result.width + 1.0, render_result.height + 1.0);
+    cr.stroke();
+    cr.translate(1.0, 1.0);
+    cr.set_source(&render_result.pattern);
+    cr.paint();
+    RenderResult {
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
+        width: render_result.width + 2.0,
+        height: render_result.height + 2.0,
+    }
+}
 */

@@ -1,5 +1,5 @@
 use crate::{data::*, Value};
-use cairo::{Content, Context, Format, ImageSurface, Pattern, RecordingSurface, SurfacePattern};
+use cairo::{Content, Context, Format, ImageSurface, Pattern, RecordingSurface, SurfacePattern, SvgSurface};
 use gio::prelude::*;
 use gtk::{prelude::*, Application, ApplicationWindow, DrawingArea};
 use itertools::Itertools;
@@ -157,26 +157,42 @@ fn render_text(text: &str) -> RenderResult {
     }
 }
 
-fn render_underline(width: f64, red: f64, green: f64, blue: f64) -> RenderResult {
+fn render_underline(render_result: RenderResult, red: f64, green: f64, blue: f64, alpha: f64) -> RenderResult {
     let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     cr.set_line_width(1.0);
-    cr.set_source_rgb(red, green, blue);
-    cr.move_to(0.0, 1.5);
-    cr.line_to(width, 1.0);
+    cr.set_source_rgba(red, green, blue, alpha);
+    cr.move_to(0.0, render_result.height + 1.0);
+    cr.line_to(render_result.width, render_result.height + 1.0);
     cr.stroke();
+    cr.set_source(&render_result.pattern);
+    cr.paint();
     RenderResult {
         pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
-        width,
-        height: 2.0,
+        width: render_result.width,
+        height: render_result.height + 2.0,
     }
 }
 
 fn render_highlighted(render_result: RenderResult, red: f64, green: f64, blue: f64, alpha: f64) -> RenderResult {
     let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
-    cr.set_line_width(1.0);
     cr.set_source_rgba(red, green, blue, alpha);
-    cr.rectangle(0.0, 0.0, render_result.width, render_result.height);
+    cr.rectangle(0.5, 0.5, render_result.width - 1.0, render_result.height - 1.0);
     cr.fill();
+    cr.set_source(&render_result.pattern);
+    cr.paint();
+    RenderResult {
+        pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
+        width: render_result.width,
+        height: render_result.height,
+    }
+}
+
+fn render_frame(render_result: RenderResult, red: f64, green: f64, blue: f64, alpha: f64) -> RenderResult {
+    let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
+    cr.set_line_width(0.5);
+    cr.set_source_rgba(red, green, blue, alpha);
+    cr.rectangle(0.25, 0.25, render_result.width - 0.5, render_result.height - 0.5);
+    cr.stroke();
     cr.set_source(&render_result.pattern);
     cr.paint();
     RenderResult {
@@ -268,13 +284,9 @@ fn render_components(layout: ComponentsLayout, components: &[RenderResult]) -> R
 fn render_value<RenderPart: FnMut(usize) -> RenderResult>(value: Value, mut render_part: RenderPart) -> RenderResult {
     #[allow(clippy::if_same_then_else)]
     if value.is::<HoldValueInner>() {
-        let inner_render_result = render_part(0);
-        let underline_render_result = render_underline(inner_render_result.width, 1.0, 0.0, 0.0);
-        render_components(ComponentsLayout::Center, &[inner_render_result, underline_render_result])
+        render_underline(render_part(0), 0.8, 0.0, 0.0, 1.0)
     } else if value.is::<ReleaseValueInner>() {
-        let inner_render_result = render_part(0);
-        let underline_render_result = render_underline(inner_render_result.width, 0.0, 1.0, 0.0);
-        render_components(ComponentsLayout::Center, &[inner_render_result, underline_render_result])
+        render_underline(render_part(0), 0.0, 0.8, 0.0, 1.0)
     } else if value.is::<AssignmentValueInner>() {
         render_components(ComponentsLayout::Middle, &[render_part(1), render_text("<-"), render_part(0)])
     } else if value.is::<DereferenceValueInner>() {
@@ -332,7 +344,7 @@ fn render(value: Value, selection: Option<&[usize]>) -> RenderResult {
         )
     });
     if selection.is_some() && selection.unwrap().is_empty() {
-        render_highlighted(render_result, 0.0, 0.0, 0.0, 0.2)
+        render_frame(render_highlighted(render_result, 0.0, 0.0, 1.0, 0.1), 0.0, 0.0, 1.0, 0.5)
     } else {
         render_result
     }
@@ -366,8 +378,13 @@ pub fn run(value: Value) {
                     Inhibit(true)
                 }
                 gdk::keys::constants::Left => {
-                    if !selection.borrow().is_empty() && *selection.borrow().last().unwrap() >= 1 {
-                        *selection.borrow_mut().last_mut().unwrap() -= 1;
+                    if !selection.borrow().is_empty() {
+                        let part = get_part(value.borrow().clone(), &selection.borrow()[..selection.borrow().len() - 1]);
+                        if *selection.borrow().last().unwrap() >= 1 {
+                            *selection.borrow_mut().last_mut().unwrap() -= 1;
+                        } else {
+                            *selection.borrow_mut().last_mut().unwrap() = get_parts(part.unwrap()).len() - 1;
+                        }
                         drawing_area.queue_draw();
                     }
                     Inhibit(true)
@@ -377,8 +394,10 @@ pub fn run(value: Value) {
                         let part = get_part(value.borrow().clone(), &selection.borrow()[..selection.borrow().len() - 1]);
                         if part.is_some() && selection.borrow().last().unwrap() + 1 < get_parts(part.unwrap()).len() {
                             *selection.borrow_mut().last_mut().unwrap() += 1;
-                            drawing_area.queue_draw();
+                        } else {
+                            *selection.borrow_mut().last_mut().unwrap() = 0;
                         }
+                        drawing_area.queue_draw();
                     }
                     Inhibit(true)
                 }
@@ -386,7 +405,13 @@ pub fn run(value: Value) {
             });
         }
         drawing_area.connect_draw(move |_, cr| {
-            cr.set_source(&render_rasterized(render_scaled(render(value.borrow().clone(), Some(&selection.borrow())), 1.3, 1.3)).pattern);
+            let render_result = render_scaled(render(value.borrow().clone(), Some(&selection.borrow())), 2.0, 2.0);
+            {
+                let cr = Context::new(&*SvgSurface::new(render_result.width, render_result.height, Some("/tmp/test.svg")).unwrap());
+                cr.set_source(&render_result.pattern);
+                cr.paint();
+            }
+            cr.set_source(&render_rasterized(render_result).pattern);
             cr.paint();
             Inhibit(false)
         });

@@ -1,5 +1,5 @@
 use crate::{data::*, Value};
-use cairo::{Content, Context, Format, ImageSurface, Pattern, RecordingSurface, SurfacePattern, SvgSurface};
+use cairo::{Content, Context, Format, ImageSurface, Pattern, RecordingSurface, SurfacePattern};
 use gio::prelude::*;
 use gtk::{prelude::*, Application, ApplicationWindow, DrawingArea};
 use itertools::Itertools;
@@ -145,15 +145,14 @@ fn render_empty(width: f64, height: f64) -> RenderResult {
 
 fn render_text(text: &str) -> RenderResult {
     let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
-    let text_extents = cr.text_extents(text);
-    cr.save();
-    cr.move_to(-text_extents.x_bearing, -text_extents.y_bearing);
-    cr.show_text(text);
-    cr.restore();
+    let layout = pangocairo::create_layout(&cr).unwrap();
+    layout.set_font_description(Some(&pango::FontDescription::from_string("CMU Serif, serif, 12")));
+    layout.set_text(text);
+    pangocairo::show_layout(&cr, &layout);
     RenderResult {
         pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
-        width: text_extents.width,
-        height: text_extents.height,
+        width: (layout.get_size().0 as f64) / (pango::SCALE as f64),
+        height: (layout.get_size().1 as f64) / (pango::SCALE as f64),
     }
 }
 
@@ -161,15 +160,15 @@ fn render_underline(render_result: RenderResult, red: f64, green: f64, blue: f64
     let cr = Context::new(&*RecordingSurface::create(Content::ColorAlpha, None).unwrap());
     cr.set_line_width(1.0);
     cr.set_source_rgba(red, green, blue, alpha);
-    cr.move_to(0.0, render_result.height + 1.0);
-    cr.line_to(render_result.width, render_result.height + 1.0);
+    cr.move_to(0.0, render_result.height + 1.5);
+    cr.line_to(render_result.width, render_result.height + 1.5);
     cr.stroke();
     cr.set_source(&render_result.pattern);
     cr.paint();
     RenderResult {
         pattern: (&*SurfacePattern::create(&cr.get_target())).clone(),
         width: render_result.width,
-        height: render_result.height + 2.0,
+        height: render_result.height + 4.0,
     }
 }
 
@@ -288,9 +287,9 @@ fn render_value<RenderPart: FnMut(usize) -> RenderResult>(value: Value, mut rend
     } else if value.is::<ReleaseValueInner>() {
         render_underline(render_part(0), 0.0, 0.8, 0.0, 1.0)
     } else if value.is::<AssignmentValueInner>() {
-        render_components(ComponentsLayout::Middle, &[render_part(1), render_text("<-"), render_part(0)])
+        render_components(ComponentsLayout::Middle, &[render_part(1), render_text(" ← "), render_part(0)])
     } else if value.is::<DereferenceValueInner>() {
-        render_components(ComponentsLayout::Middle, &[render_text("*"), render_part(0)])
+        render_components(ComponentsLayout::Middle, &[render_text("∗"), render_empty(1.0, 0.0), render_part(0)])
     } else if let Some(value_inner) = value.try_downcast::<ExecutableSequenceValueInner>() {
         render_components(
             ComponentsLayout::Left,
@@ -298,13 +297,13 @@ fn render_value<RenderPart: FnMut(usize) -> RenderResult>(value: Value, mut rend
                 .chain(
                     (0..value_inner.inner.len())
                         .map(|part_index| render_components(ComponentsLayout::Middle, &[render_empty(20.0, 0.0), render_part(part_index)]))
-                        .intersperse(render_empty(0.0, 3.0)),
+                        .intersperse(render_empty(0.0, 1.0)),
                 )
                 .chain(std::iter::once(render_text("}")))
                 .collect::<Vec<_>>(),
         )
     } else if value.is::<ExecutableFunctionValueInner>() {
-        render_components(ComponentsLayout::Middle, &[render_part(0), render_text("->"), render_part(1)])
+        render_components(ComponentsLayout::Middle, &[render_part(0), render_text(" → "), render_part(1)])
     } else if value.is::<FunctionApplicationValueInner>() {
         render_components(ComponentsLayout::Middle, &[render_part(0), render_part(1)])
     } else if value.is::<IntrinsicCallValueInner>() {
@@ -316,7 +315,7 @@ fn render_value<RenderPart: FnMut(usize) -> RenderResult>(value: Value, mut rend
                 .chain(
                     (0..value_inner.inner.len())
                         .map(|part_index| render_part(part_index))
-                        .intersperse(render_components(ComponentsLayout::Bottom, &[render_text(","), render_empty(5.0, 10.0)])),
+                        .intersperse(render_components(ComponentsLayout::Bottom, &[render_text(", ")])),
                 )
                 .chain(std::iter::once(render_text(")")))
                 .collect::<Vec<_>>(),
@@ -336,10 +335,9 @@ fn render(value: Value, selection: Option<&[usize]>) -> RenderResult {
     let render_result = render_value(value.clone(), |part_index| {
         render(
             get_parts(value.clone())[part_index].clone(),
-            if selection.is_some() && !selection.unwrap().is_empty() && selection.unwrap()[0] == part_index {
-                Some(&selection.unwrap()[1..])
-            } else {
-                None
+            match selection {
+                Some([first, rest @ ..]) if *first == part_index => Some(rest),
+                _ => None,
             },
         )
     });
@@ -368,8 +366,8 @@ pub fn run(value: Value) {
                     let part = get_part(value.borrow().clone(), &selection.borrow());
                     if part.is_some() && !get_parts(part.unwrap()).is_empty() {
                         selection.borrow_mut().push(0);
-                        drawing_area.queue_draw();
                     }
+                    drawing_area.queue_draw();
                     Inhibit(true)
                 }
                 gdk::keys::constants::Up => {
@@ -405,13 +403,7 @@ pub fn run(value: Value) {
             });
         }
         drawing_area.connect_draw(move |_, cr| {
-            let render_result = render_scaled(render(value.borrow().clone(), Some(&selection.borrow())), 2.0, 2.0);
-            {
-                let cr = Context::new(&*SvgSurface::new(render_result.width, render_result.height, Some("/tmp/test.svg")).unwrap());
-                cr.set_source(&render_result.pattern);
-                cr.paint();
-            }
-            cr.set_source(&render_rasterized(render_result).pattern);
+            cr.set_source(&render_rasterized(render_scaled(render(value.borrow().clone(), Some(&selection.borrow())), 1.0, 1.0)).pattern);
             cr.paint();
             Inhibit(false)
         });
